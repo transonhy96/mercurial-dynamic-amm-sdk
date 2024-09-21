@@ -1487,6 +1487,91 @@ export default class AmmImpl implements AmmImplementation {
     }).add(swapTx);
   }
 
+  public async swapInstructions(
+    owner: PublicKey,
+    inTokenMint: PublicKey,
+    inAmountLamport: BN,
+    outAmountLamport: BN,
+    referralOwner?: PublicKey,
+  ): Promise<{
+    preInstructions: Array<TransactionInstruction>,
+    swapInstruction: TransactionInstruction,
+    postInstructions: Array<TransactionInstruction>
+  }> {
+    const [sourceToken, destinationToken] = this.tokenAMint.address.equals(inTokenMint)
+      ? [this.poolState.tokenAMint, this.poolState.tokenBMint]
+      : [this.poolState.tokenBMint, this.poolState.tokenAMint];
+
+    const protocolTokenFee = this.tokenAMint.address.equals(inTokenMint)
+      ? this.poolState.protocolTokenAFee
+      : this.poolState.protocolTokenBFee;
+
+    let preInstructions: Array<TransactionInstruction> = [];
+    const [[userSourceToken, createUserSourceIx], [userDestinationToken, createUserDestinationIx]] =
+      await this.createATAPreInstructions(owner, [sourceToken, destinationToken]);
+
+    createUserSourceIx && preInstructions.push(createUserSourceIx);
+    createUserDestinationIx && preInstructions.push(createUserDestinationIx);
+
+    if (sourceToken.equals(NATIVE_MINT)) {
+      preInstructions = preInstructions.concat(
+        wrapSOLInstruction(owner, userSourceToken, BigInt(inAmountLamport.toString())),
+      );
+    }
+
+    const postInstructions: Array<TransactionInstruction> = [];
+    if (NATIVE_MINT.equals(destinationToken)) {
+      const unwrapSOLIx = await unwrapSOLInstruction(owner);
+      unwrapSOLIx && postInstructions.push(unwrapSOLIx);
+    }
+
+    const remainingAccounts = this.swapCurve.getRemainingAccounts();
+
+    if (referralOwner) {
+      const [referralTokenAccount, createReferralTokenAccountIx] = await getOrCreateATAInstruction(
+        inTokenMint,
+        referralOwner,
+        this.program.provider.connection,
+        owner,
+      );
+      createReferralTokenAccountIx && preInstructions.push(createReferralTokenAccountIx);
+      remainingAccounts.push({
+        isSigner: false,
+        isWritable: true,
+        pubkey: referralTokenAccount,
+      });
+    }
+
+    const swapInstruction = await this.program.methods
+      .swap(inAmountLamport, outAmountLamport)
+      .accounts({
+        aTokenVault: this.vaultA.vaultState.tokenVault,
+        bTokenVault: this.vaultB.vaultState.tokenVault,
+        aVault: this.poolState.aVault,
+        bVault: this.poolState.bVault,
+        aVaultLp: this.poolState.aVaultLp,
+        bVaultLp: this.poolState.bVaultLp,
+        aVaultLpMint: this.vaultA.vaultState.lpMint,
+        bVaultLpMint: this.vaultB.vaultState.lpMint,
+        userSourceToken,
+        userDestinationToken,
+        user: owner,
+        protocolTokenFee,
+        pool: this.address,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        vaultProgram: this.vaultProgram.programId,
+      })
+      .remainingAccounts(remainingAccounts)
+      .instruction();
+
+    return {
+      preInstructions,
+      swapInstruction,
+      postInstructions
+    }
+  }
+
+
   /**
    * `getDepositQuote` is a function that takes in a tokenAInAmount, tokenBInAmount, balance, and
    * slippage, and returns a poolTokenAmountOut, tokenAInAmount, and tokenBInAmount. `tokenAInAmount` or `tokenBAmount`

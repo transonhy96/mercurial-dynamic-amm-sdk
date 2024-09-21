@@ -1,11 +1,10 @@
-import { AccountInfo, PublicKey, Transaction } from '@solana/web3.js';
-import { TokenInfo } from '@solana/spl-token-registry';
+import { AccountInfo, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { IdlAccounts, IdlTypes, Program } from '@coral-xyz/anchor';
 import BN from 'bn.js';
 import { Amm as AmmIdl } from '../idl';
 import { VaultState, VaultIdl } from '@mercurial-finance/vault-sdk';
 import Decimal from 'decimal.js';
-import { publicKey, struct, u64, u8, option, i64 } from '@coral-xyz/borsh';
+import { publicKey, struct, u64, u8, i64 } from '@coral-xyz/borsh';
 
 export type AmmProgram = Program<AmmIdl>;
 export type VaultProgram = Program<VaultIdl>;
@@ -19,6 +18,11 @@ export interface AmmImplementation {
   getLpSupply: () => Promise<BN>;
   getSwapQuote: (inTokenMint: PublicKey, inAmountLamport: BN, slippage: number) => SwapQuote;
   swap: (owner: PublicKey, inTokenMint: PublicKey, inAmountLamport: BN, outAmountLamport: BN) => Promise<Transaction>;
+  swapInstructions:  (owner: PublicKey, inTokenMint: PublicKey, inAmountLamport: BN, outAmountLamport: BN) => Promise<{
+    preInstructions: Array<TransactionInstruction>,
+    swapInstruction: TransactionInstruction,
+    postInstructions: Array<TransactionInstruction>
+  }>;
   getDepositQuote: (tokenAInAmount: BN, tokenBInAmount: BN, isImbalance: boolean, slippage: number) => DepositQuote;
   deposit: (owner: PublicKey, tokenAInAmount: BN, tokenBInAmount: BN, poolTokenAmount: BN) => Promise<Transaction>;
   getWithdrawQuote: (lpTokenAmount: BN, slippage: number, tokenMint?: PublicKey) => WithdrawQuote;
